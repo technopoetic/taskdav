@@ -26,19 +26,21 @@ def get_tasks(include_completed=False):
         todos = task_cal.todos(include_completed=include_completed)
         return todos
     else:
-        raise ValueError('No Calendar specified for Tasks.')
+        raise ValueError("No Calendar specified for Tasks.")
 
 
 @click.group()
 def cli():
     pass
 
-@click.command()
+
+@click.command(help="List all open Tasks")
 @click.option(
-    '--include-completed',
-    '-i',
+    "--include-completed",
+    "-i",
     is_flag=True,
-    help='Include completed Tasks in the task list.')
+    help="Include completed Tasks in the task list.",
+)
 def list(include_completed):
     try:
         todos = get_tasks(include_completed)
@@ -49,14 +51,24 @@ def list(include_completed):
     except ValueError as e:
         print(e)
 
-@click.command()
+
+@click.command(help="Create a new Task")
+@click.option("--category", "-c", help="Task Category.  Will be created, if it does not already exist")
+@click.option("--access", "-a", help="Task Class.  Usually one of Private, Public or Confidential")
+@click.option("--desc", "-d", help="Task Description.")
+@click.option("--priority", "-p", help="Task Priority.")
+@click.option("--summary", "-s", help="Task Summary.")
+@click.option("--status", "-t", help="Task Status.")
+    # "NEEDS-ACTION" ;Indicates to-do needs action.
+    #                    / "COMPLETED"    ;Indicates to-do completed.
+    #                    / "IN-PROCESS"   ;Indicates to-do in process of.
+    #                    / "CANCELLED"
 def create():
     print("Not implemented yet")
+
 
 cli.add_command(list)
 cli.add_command(create)
 
-## It's possible to fetch historic tasks too
-##todos = my_new_tasklist.todos(include_completed=True)
 if __name__ == "__main__":
     cli()
