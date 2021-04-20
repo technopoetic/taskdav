@@ -15,7 +15,8 @@ class Task:
         self.status = self._parse_status()
 
     def pp(self):
-        return self.data_dict.prettyPrint()
+        self.data_dict.prettyPrint()
+        return True
 
     @property
     def to_dict(self):
