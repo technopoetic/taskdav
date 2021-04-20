@@ -57,6 +57,7 @@ def list(include_completed):
 
         for t in todos:
             task = Task(t.data)
+            # task.pp()
             print(task.serialize())
     except ValueError as e:
         print(e)
