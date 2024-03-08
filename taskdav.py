@@ -4,13 +4,13 @@ from datetime import datetime
 import click
 import os
 import caldav
-from task import Task
+from task import Task, TodoList
 
-## CONFIGURATION.
+# CONFIGURATION.
 caldav_url = os.environ.get("CALDAV_URL")
 task_calendar = os.environ.get("TASK_CALENDAR")
 username = os.environ.get("TASK_USERNAME")
-password = os.environ.get("TASK_PWORD")
+pwd = os.environ.get("TASK_PWORD")
 
 
 def get_tasks(include_completed=False):
@@ -21,23 +21,27 @@ def get_tasks(include_completed=False):
     else:
         raise ValueError("No Calendar specified for Tasks.")
 
-def create_task(data={}):
+
+def create_task(data=None):
+    if data is None:
+        data = {}
     task_cal = get_task_cal()
     vdata = (
-    f'BEGIN:VCALENDAR\n'
-    f'BEGIN:VTODO\n'
-    f'SUMMARY:{data.get("summary")}\n'
-    f'CATEGORIES:{data.get("category")}\n'
-    f'STATUS:{data.get("status")}\n'
-    f'PRIORITY:{data.get("priority")}\n'
-    f'END:VTODO\n'
-    f'END:VCALENDAR'
+        f'BEGIN:VCALENDAR\n'
+        f'BEGIN:VTODO\n'
+        f'SUMMARY:{data.get("summary")}\n'
+        f'CATEGORIES:{data.get("category")}\n'
+        f'STATUS:{data.get("status")}\n'
+        f'PRIORITY:{data.get("priority")}\n'
+        f'END:VTODO\n'
+        f'END:VCALENDAR'
     )
 
     if task_cal is not None:
         task_cal.save_todo(vdata)
     else:
         raise ValueError("No Calendar specified for Tasks.")
+
 
 @click.group()
 def cli():
@@ -51,14 +55,11 @@ def cli():
     is_flag=True,
     help="Include completed Tasks in the task list.",
 )
-def list(include_completed):
+def list_tasks(include_completed):
     try:
         todos = get_tasks(include_completed)
-
-        for t in todos:
-            task = Task(t.data)
-            # task.pp()
-            print(task.serialize())
+        todo_list = TodoList(todos)
+        todo_list.serialize()
     except ValueError as e:
         print(e)
 
@@ -70,11 +71,11 @@ def list(include_completed):
 @click.option("--priority", "-p", help="Task Priority.")
 @click.option("--summary", "-s", help="Task Summary.")
 @click.option("--status", "-t", help="Task Status.")
-    # "NEEDS-ACTION" ;Indicates to-do needs action.
-    #                    / "COMPLETED"    ;Indicates to-do completed.
-    #                    / "IN-PROCESS"   ;Indicates to-do in process of.
-    #                    / "CANCELLED"
-def create(category=None, access=None, desc=None, priority=None, summary=None, status=None):
+# "NEEDS-ACTION" ;Indicates to-do needs action.
+#                    / "COMPLETED"    ;Indicates to-do completed.
+#                    / "IN-PROCESS"   ;Indicates to-do in process of.
+#                    / "CANCELLED"
+def create(category=None, access='public', desc=None, priority=None, summary=None, status=None):
     try:
         create_task({
             "category": category,
@@ -93,8 +94,9 @@ def create(category=None, access=None, desc=None, priority=None, summary=None, s
     except ValueError as e:
         print(e)
 
+
 def get_task_cal():
-    client = caldav.DAVClient(url=caldav_url, username=username, password=password)
+    client = caldav.DAVClient(url=caldav_url, username=username, password=pwd)
     my_principal = client.principal()
     calendars = my_principal.calendars()
     task_cal = None
@@ -103,7 +105,8 @@ def get_task_cal():
             task_cal = cal
     return task_cal
 
-cli.add_command(list)
+
+cli.add_command(list_tasks, name='list')
 cli.add_command(create)
 
 if __name__ == "__main__":
