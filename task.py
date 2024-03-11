@@ -1,6 +1,9 @@
+import os
+
 import vobject
 import json
 
+from rich import print
 
 class Task:
     def __init__(self, vdata):
@@ -45,6 +48,14 @@ class Task:
 
     def serialize(self):
         return json.dumps(self.to_dict, indent=4, sort_keys=True, default=str)
+
+    def to_todo_txt(self):
+        if self.status is None:
+            status = 26
+        else:
+            status = self.status
+
+        print(f"({self.priority or 9}) {status} {self.created: %Y-%m-%d} {self.completed_date or ''} {self.summary}: {self.description}")
 
     def _parse_categories(self):
         categories = []
@@ -137,12 +148,28 @@ class Task:
         return start, due, completed
 
 
-class TodoList():
-    def __init__(self, todos):
-        self.todos = []
-        for t in todos:
-            self.todos.append(Task(t.data))
+class TodoList:
+    def __init__(self, client):
+        self.calendar = None
+        self.todos = None
+        self.client = client
+        self.task_calendar = os.environ.get("TASK_CALENDAR")
+        self.get_task_cal()
+        self.get_tasks()
 
     def serialize(self):
         for t in self.todos:
-            print(t.serialize())
+            t.to_todo_txt()
+
+    def get_task_cal(self):
+        my_principal = self.client.principal()
+        calendars = my_principal.calendars()
+        for cal in calendars:
+            if cal.name == self.task_calendar:
+                self.calendar = cal
+
+    def get_tasks(self, include_completed=False):
+        if self.calendar is None:
+            raise ValueError("No Calendar specified for Tasks.")
+        else:
+            self.todos = [Task(todo.data) for todo in self.calendar.todos(include_completed=include_completed)]
