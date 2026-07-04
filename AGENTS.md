@@ -7,6 +7,7 @@ CLI bridge between [todo.txt](https://github.com/todotxt/todo.txt)-style task sy
 ```bash
 uv run taskdav.py list                       # list open tasks (todo.txt-style output)
 uv run taskdav.py list -i                     # include completed
+uv run taskdav.py view 1                      # detailed view of task 1 (Rich panel + Markdown)
 uv run taskdav.py create "(A) buy milk +groceries due:2026-07-10"
 uv run taskdav.py delete 2                     # 1-indexed position from `list`
 ```
@@ -27,18 +28,23 @@ Requires env vars: `CALDAV_URL`, `TASK_USERNAME`, `TASK_PWORD`, `TASK_CALENDAR`.
 ## Verify
 
 - **Format**: `uv run black .` (formatter; dev dep). Config in `pyproject.toml` `[tool.black]`.
-- **Test**: `uv run pytest` (dev dep — **no tests exist yet**)
+- **Test**: `uv run pytest` (dev dep — 15 tests in `tests/test_task.py`). Config: `[tool.pytest.ini_options]` with `pythonpath = ["."]`.
 - No lint/typecheck configured. Run `uv run black --check .` as a minimal gate.
 
 ## Architecture
 
-- `taskdav.py` — Click CLI group (`cli`) with `list`, `create`, `delete`. Instantiates a CalDAV client and `TodoList` **at module import time** (module-level side effects), so merely importing `taskdav` opens a network connection to the CalDAV server. Testing requires mocking `caldav.DAVClient` / the `TodoList` constructor.
-- `task.py` — `Task` wraps a parsed `vobject` VTODO and exposes todo.txt-style fields; `TodoList` owns the CalDAV client + calendar and the input parser (`TodoList.parse`). `TodoList.__init__` also calls `get_tasks()`, so construction hits the server too.
+- `taskdav.py` — Click CLI group (`cli`) with `list`, `create`, `delete`, `view`. Instantiates a CalDAV client and `TodoList` **at module import time** (module-level side effects), so merely importing `taskdav` opens a network connection to the CalDAV server. Testing requires mocking `caldav.DAVClient` / the `TodoList` constructor.
+- `task.py` — `Task` wraps a parsed `vobject` VTODO and exposes todo.txt-style fields; `TodoList` owns the CalDAV client + calendar and the input parser (`TodoList.parse`). `TodoList.__init__` also calls `get_tasks()`, so construction hits the server too. `TodoList` also owns the read cache (`_cache_path`, `_read_cache`, `_write_cache`, `_invalidate_cache`) — see "Read cache" below.
 - `old_task.py` — legacy pure-todo.txt `Task` parser. **Not imported anywhere.** Treat as reference/dead code; don't wire new features through it.
+
+## Read cache
+
+`TodoList.get_tasks()` caches raw VTODO strings (the `todo.data` blobs from `calendar.todos()`) to a JSON file at `$XDG_CACHE_HOME/taskdav/tasks.json` (or `~/.cache/taskdav/tasks.json`). Keyed on `(calendar, include_completed)` with a 600s TTL (`CACHE_TTL_SECONDS`). Invalidated on `create_task` and `delete_task`. Miss/expiry/mismatch/corrupt all fall through to a fresh fetch and overwrite. Caching the raw strings (not parsed dicts) avoids a second `Task` constructor — `Task.__init__` just re-parses the stored VDATA.
 
 ## Gotchas
 
 - **`vobject` is an explicit dep** (`vobject>=0.9.9` in `pyproject.toml`). caldav 3.x dropped vobject internally in favor of `icalendar`, but `task.py` uses `vobject.readOne()` / `vobject.newFromBehavior()` directly — so it must be declared separately. Removing it will `ImportError` at runtime.
-- **`delete_task` is a stub** in `task.py:229` — the real `task.delete()` call is commented out. Don't assume `delete` works end-to-end.
-- Priority input is a single char `(A)`–`(Z)` in the CLI string; `Task._parse_priority` maps numeric CalDAV priority (1–9) to `HIGH`/`MEDIUM`/`LOW` for display.
+- **`delete_task` is a stub** in `task.py` — the real `task.delete()` call is commented out. Don't assume `delete` works end-to-end. The cache invalidation is wired for correctness when the stub is replaced.
+- Priority input is a single char `(A)`–`(Z)` in the CLI string; `Task._parse_priority` maps numeric CalDAV priority (1–9) to `HIGH`/`MEDIUM`/`LOW` for display. In `Task.view()`, priority appears in the Panel subtitle (not the field table).
+- **Testing pattern**: `TodoList.__init__` calls `get_task_cal()` + `get_tasks()` and hits the network on construction. Two patterns in `tests/test_task.py`: (1) stateless methods (`_cache_path`, `_invalidate_cache`) use `TodoList.__new__` to skip `__init__` entirely; (2) full construction uses `make_fake_todo_list(raw_vtodo_strings)` which builds a MagicMock CalDAV client + calendar. Monkeypatch `_cache_path` to `tmp_path` before construction to avoid writing to the real cache.
 - `requirements/` and `.tool-versions` are **legacy artifacts** from the old asdf/direnv/pip-tools toolchain. Obsolete under uv+mise. Safe to delete once you've confirmed the migration works.
