@@ -4,9 +4,14 @@ import vobject
 import json
 import re
 import dateutil
+from datetime import datetime
 
 from rich import print
 from rich.columns import Columns
+from rich.panel import Panel
+from rich.table import Table
+from rich.markdown import Markdown
+from rich.console import Group
 
 
 class Task:
@@ -66,6 +71,39 @@ class Task:
         print(
             f"({num}) ({self.priority}) {status} {due_date} {self.summary} {self.categories or ''}"
         )
+
+    def view(self):
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column()
+
+        def fmt_date(d):
+            if d is None:
+                return "—"
+            return d.strftime("%Y-%m-%d")
+
+        table.add_row("Status", self.status or "—")
+        table.add_row("Due", fmt_date(self.due_date))
+        table.add_row("Start", fmt_date(self.start_date))
+        table.add_row("Completed", fmt_date(self.completed_date))
+        table.add_row("Created", fmt_date(self.created))
+        table.add_row("Last Modified", fmt_date(self.last_modified))
+        table.add_row("Percent Complete", self.percent or "—")
+        table.add_row(
+            "Categories",
+            ", ".join(self.categories) if self.categories else "—",
+        )
+        table.add_row("Class", self.task_class or "—")
+        table.add_row("UID", self.uid or "—")
+
+        elements = [table]
+        if self.description is not None:
+            elements.append(Markdown(self.description))
+
+        panel = Panel(
+            Group(*elements), title=self.summary, subtitle=self.priority or ""
+        )
+        print(panel)
 
     def _parse_categories(self):
         categories = []
@@ -173,6 +211,7 @@ class TodoList:
     KEYVALUE_RE = re.compile(r"(\s+|^)([^\s]+):([^\s$]+)")
     DATE_RE = re.compile(r"^\s*([\d]{4}-[\d]{2}-[\d]{2})", re.ASCII)
     DATE_FMT = "%Y-%m-%d"
+    CACHE_TTL_SECONDS = 600
 
     def __init__(self, client):
         self.calendar = None
@@ -196,12 +235,66 @@ class TodoList:
             if cal.name == self.task_calendar:
                 self.calendar = cal
 
+    def _cache_path(self):
+        cache_dir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+        return os.path.join(cache_dir, "taskdav", "tasks.json")
+
+    def _invalidate_cache(self):
+        try:
+            os.remove(self._cache_path())
+        except FileNotFoundError:
+            pass
+
+    def _read_cache(self, path, include_completed):
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        if data.get("calendar") != self.task_calendar:
+            return None
+        if data.get("include_completed") != include_completed:
+            return None
+        try:
+            fetched_at = datetime.fromisoformat(data["fetched_at"])
+        except (ValueError, KeyError):
+            return None
+        age = (datetime.now() - fetched_at).total_seconds()
+        if age >= TodoList.CACHE_TTL_SECONDS:
+            return None
+        return data.get("raw_todos")
+
+    def _write_cache(self, path, include_completed, raw_strings):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {
+            "calendar": self.task_calendar,
+            "include_completed": include_completed,
+            "fetched_at": datetime.now().isoformat(),
+            "raw_todos": raw_strings,
+        }
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
     def get_tasks(self, include_completed=False):
         if self.calendar is None:
             raise ValueError("No Calendar specified for Tasks.")
-        else:
-            self.raw_todos = self.calendar.todos(include_completed=include_completed)
-            self.todos = [Task(todo.data) for todo in self.raw_todos]
+
+        cache_path = self._cache_path()
+        cached = self._read_cache(cache_path, include_completed)
+        if cached is not None:
+            # Hit: raw_todos is list[str]; miss path below assigns list[caldav.Todo].
+            self.raw_todos = cached
+            self.todos = [Task(s) for s in cached]
+            return None
+
+        self.raw_todos = self.calendar.todos(include_completed=include_completed)
+        raw_strings = [todo.data for todo in self.raw_todos]
+        self.todos = [Task(s) for s in raw_strings]
+        self._write_cache(cache_path, include_completed, raw_strings)
         return None
 
     def create_task(self, data):
@@ -225,6 +318,7 @@ class TodoList:
             task.add("status").value = task_data.get("status")
 
         self.calendar.save_todo(task.serialize())
+        self._invalidate_cache()
         self.get_tasks()
         return task
 
@@ -232,8 +326,14 @@ class TodoList:
         task = self.todos[int(id) - 1]
         # print(task.serialize())
         # task.delete()
+        self._invalidate_cache()  # bust cache after successful delete (un-stub above)
         ttype = type(task.data_dict)
         return None
+
+    def view_task(self, id):
+        self.get_tasks()
+        task = self.todos[int(id) - 1]
+        task.view()
 
     def parse(self, data):
         task_data = {

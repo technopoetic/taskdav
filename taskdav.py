@@ -50,9 +50,19 @@ def create(line):
     tdl.serialize()
 
 
+@click.command(help="Show detailed view of a single task")
+@click.argument("id")
+def view(id):
+    try:
+        tdl.view_task(id)
+    except ValueError as e:
+        print(e)
+
+
 cli.add_command(list_tasks, name="list")
 cli.add_command(create)
 cli.add_command(delete_task, name="delete")
+cli.add_command(view)
 
 if __name__ == "__main__":
     cli()
