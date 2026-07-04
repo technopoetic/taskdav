@@ -281,6 +281,7 @@ class TodoList:
             task.add("status").value = task_data.get("status")
 
         self.calendar.save_todo(task.serialize())
+        self._invalidate_cache()
         self.get_tasks()
         return task
 
@@ -288,6 +289,7 @@ class TodoList:
         task = self.todos[int(id) - 1]
         # print(task.serialize())
         # task.delete()
+        self._invalidate_cache()  # bust cache after successful delete (un-stub above)
         ttype = type(task.data_dict)
         return None
 

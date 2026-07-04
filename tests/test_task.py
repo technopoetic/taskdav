@@ -149,3 +149,21 @@ def test_cache_nondict_json_triggers_miss(monkeypatch, tmp_path):
     tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
     assert fake_cal.todos.call_count == 1
     assert tdl.todos[0].summary == "Buy milk"
+
+
+def test_create_task_invalidates_cache(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    calls_after_init = fake_cal.todos.call_count
+    tdl.create_task("(A) new task +test")
+    assert fake_cal.todos.call_count == calls_after_init + 1
+
+
+def test_delete_task_invalidates_cache(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, _ = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    assert cache_file.exists()
+    tdl.delete_task(1)
+    assert not cache_file.exists()
