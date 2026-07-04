@@ -175,7 +175,7 @@ def test_task_view_with_description(capsys):
     out = capsys.readouterr().out
     assert "Buy milk" in out
     assert "Status" in out
-    assert "Priority" in out
+    assert "HIGH" in out
     assert "Due" in out
     assert "2% milk" in out
     assert "groceries" in out

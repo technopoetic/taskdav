@@ -83,7 +83,6 @@ class Task:
             return d.strftime("%Y-%m-%d")
 
         table.add_row("Status", self.status or "—")
-        table.add_row("Priority", self.priority or "—")
         table.add_row("Due", fmt_date(self.due_date))
         table.add_row("Start", fmt_date(self.start_date))
         table.add_row("Completed", fmt_date(self.completed_date))
