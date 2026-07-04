@@ -82,3 +82,70 @@ def test_invalidate_cache_idempotent(monkeypatch, tmp_path):
     monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
     tdl._invalidate_cache()
     assert not cache_file.exists()
+
+
+def test_cache_miss_writes_file(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, _ = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    assert cache_file.exists()
+    data = json.loads(cache_file.read_text())
+    assert data["calendar"] == "test_cal"
+    assert data["include_completed"] is False
+    assert len(data["raw_todos"]) == 1
+    assert "Buy milk" in data["raw_todos"][0]
+
+
+def test_cache_hit_avoids_server_call(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    call_count_after_init = fake_cal.todos.call_count
+    tdl.get_tasks()
+    assert fake_cal.todos.call_count == call_count_after_init
+    assert tdl.todos[0].summary == "Buy milk"
+
+
+def test_cache_expired_triggers_miss(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    call_count = fake_cal.todos.call_count
+    data = json.loads(cache_file.read_text())
+    data["fetched_at"] = (datetime.now() - timedelta(seconds=660)).isoformat()
+    cache_file.write_text(json.dumps(data))
+    tdl.get_tasks()
+    assert fake_cal.todos.call_count == call_count + 1
+
+
+def test_cache_key_mismatch_triggers_miss(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    call_count = fake_cal.todos.call_count
+    tdl.get_tasks(include_completed=True)
+    assert fake_cal.todos.call_count == call_count + 1
+    call_count_after_miss = fake_cal.todos.call_count
+    tdl.get_tasks(include_completed=True)
+    assert fake_cal.todos.call_count == call_count_after_miss
+    assert tdl.todos[0].summary == "Buy milk"
+
+
+def test_cache_corrupt_file_triggers_miss(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    cache_file.write_text("not valid json {{{")
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    assert fake_cal.todos.call_count == 1
+    assert tdl.todos[0].summary == "Buy milk"
+    data = json.loads(cache_file.read_text())
+    assert "Buy milk" in data["raw_todos"][0]
+
+
+def test_cache_nondict_json_triggers_miss(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    cache_file.write_text("[]")
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([SAMPLE_VTODO_FULL])
+    assert fake_cal.todos.call_count == 1
+    assert tdl.todos[0].summary == "Buy milk"

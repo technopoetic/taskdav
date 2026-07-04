@@ -208,12 +208,56 @@ class TodoList:
         except FileNotFoundError:
             pass
 
+    def _read_cache(self, path, include_completed):
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        if data.get("calendar") != self.task_calendar:
+            return None
+        if data.get("include_completed") != include_completed:
+            return None
+        try:
+            fetched_at = datetime.fromisoformat(data["fetched_at"])
+        except (ValueError, KeyError):
+            return None
+        age = (datetime.now() - fetched_at).total_seconds()
+        if age >= TodoList.CACHE_TTL_SECONDS:
+            return None
+        return data.get("raw_todos")
+
+    def _write_cache(self, path, include_completed, raw_strings):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {
+            "calendar": self.task_calendar,
+            "include_completed": include_completed,
+            "fetched_at": datetime.now().isoformat(),
+            "raw_todos": raw_strings,
+        }
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
     def get_tasks(self, include_completed=False):
         if self.calendar is None:
             raise ValueError("No Calendar specified for Tasks.")
-        else:
-            self.raw_todos = self.calendar.todos(include_completed=include_completed)
-            self.todos = [Task(todo.data) for todo in self.raw_todos]
+
+        cache_path = self._cache_path()
+        cached = self._read_cache(cache_path, include_completed)
+        if cached is not None:
+            # Hit: raw_todos is list[str]; miss path below assigns list[caldav.Todo].
+            self.raw_todos = cached
+            self.todos = [Task(s) for s in cached]
+            return None
+
+        self.raw_todos = self.calendar.todos(include_completed=include_completed)
+        raw_strings = [todo.data for todo in self.raw_todos]
+        self.todos = [Task(s) for s in raw_strings]
+        self._write_cache(cache_path, include_completed, raw_strings)
         return None
 
     def create_task(self, data):
