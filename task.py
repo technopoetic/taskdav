@@ -4,6 +4,7 @@ import vobject
 import json
 import re
 import dateutil
+from datetime import datetime
 
 from rich import print
 from rich.columns import Columns
@@ -173,6 +174,7 @@ class TodoList:
     KEYVALUE_RE = re.compile(r"(\s+|^)([^\s]+):([^\s$]+)")
     DATE_RE = re.compile(r"^\s*([\d]{4}-[\d]{2}-[\d]{2})", re.ASCII)
     DATE_FMT = "%Y-%m-%d"
+    CACHE_TTL_SECONDS = 600
 
     def __init__(self, client):
         self.calendar = None
@@ -195,6 +197,16 @@ class TodoList:
         for cal in calendars:
             if cal.name == self.task_calendar:
                 self.calendar = cal
+
+    def _cache_path(self):
+        cache_dir = os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache"))
+        return os.path.join(cache_dir, "taskdav", "tasks.json")
+
+    def _invalidate_cache(self):
+        try:
+            os.remove(self._cache_path())
+        except FileNotFoundError:
+            pass
 
     def get_tasks(self, include_completed=False):
         if self.calendar is None:
