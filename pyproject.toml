@@ -1,0 +1,19 @@
+[project]
+name = "taskdav"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "caldav",
+    "click",
+    "rich",
+    "vobject>=0.9.9",
+]
+
+[dependency-groups]
+dev = [
+    "black",
+    "pytest",
+]
+
+[tool.black]
+target-version = ["py312"]
