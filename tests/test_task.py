@@ -189,3 +189,27 @@ def test_task_view_without_description(capsys):
     assert "No description task" in out
     assert "Status" in out
     assert "—" in out
+
+
+def test_view_task_resolves_correct_index(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, _ = make_fake_todo_list([SAMPLE_VTODO_FULL, SAMPLE_VTODO_NO_DESC])
+
+    viewed_uids = []
+
+    def capture_view(self):
+        viewed_uids.append(self.uid)
+
+    monkeypatch.setattr(Task, "view", capture_view)
+
+    tdl.view_task("1")
+    assert viewed_uids == ["test-uid-1"]
+
+    tdl.view_task("2")
+    assert viewed_uids == ["test-uid-1", "test-uid-2"]
+
+    spy = MagicMock(wraps=tdl.get_tasks)
+    monkeypatch.setattr(tdl, "get_tasks", spy)
+    tdl.view_task("1")
+    spy.assert_called_once()

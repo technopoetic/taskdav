@@ -331,6 +331,11 @@ class TodoList:
         ttype = type(task.data_dict)
         return None
 
+    def view_task(self, id):
+        self.get_tasks()
+        task = self.todos[int(id) - 1]
+        task.view()
+
     def parse(self, data):
         task_data = {
             "priority": None,
