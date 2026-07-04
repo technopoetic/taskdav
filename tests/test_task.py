@@ -167,3 +167,25 @@ def test_delete_task_invalidates_cache(monkeypatch, tmp_path):
     assert cache_file.exists()
     tdl.delete_task(1)
     assert not cache_file.exists()
+
+
+def test_task_view_with_description(capsys):
+    task = Task(SAMPLE_VTODO_FULL)
+    task.view()
+    out = capsys.readouterr().out
+    assert "Buy milk" in out
+    assert "Status" in out
+    assert "Priority" in out
+    assert "Due" in out
+    assert "2% milk" in out
+    assert "groceries" in out
+    assert "errands" in out
+
+
+def test_task_view_without_description(capsys):
+    task = Task(SAMPLE_VTODO_NO_DESC)
+    task.view()
+    out = capsys.readouterr().out
+    assert "No description task" in out
+    assert "Status" in out
+    assert "—" in out

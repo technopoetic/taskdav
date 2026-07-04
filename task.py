@@ -8,6 +8,10 @@ from datetime import datetime
 
 from rich import print
 from rich.columns import Columns
+from rich.panel import Panel
+from rich.table import Table
+from rich.markdown import Markdown
+from rich.console import Group
 
 
 class Task:
@@ -67,6 +71,40 @@ class Task:
         print(
             f"({num}) ({self.priority}) {status} {due_date} {self.summary} {self.categories or ''}"
         )
+
+    def view(self):
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column(style="bold cyan", no_wrap=True)
+        table.add_column()
+
+        def fmt_date(d):
+            if d is None:
+                return "—"
+            return d.strftime("%Y-%m-%d")
+
+        table.add_row("Status", self.status or "—")
+        table.add_row("Priority", self.priority or "—")
+        table.add_row("Due", fmt_date(self.due_date))
+        table.add_row("Start", fmt_date(self.start_date))
+        table.add_row("Completed", fmt_date(self.completed_date))
+        table.add_row("Created", fmt_date(self.created))
+        table.add_row("Last Modified", fmt_date(self.last_modified))
+        table.add_row("Percent Complete", self.percent or "—")
+        table.add_row(
+            "Categories",
+            ", ".join(self.categories) if self.categories else "—",
+        )
+        table.add_row("Class", self.task_class or "—")
+        table.add_row("UID", self.uid or "—")
+
+        elements = [table]
+        if self.description is not None:
+            elements.append(Markdown(self.description))
+
+        panel = Panel(
+            Group(*elements), title=self.summary, subtitle=self.priority or ""
+        )
+        print(panel)
 
     def _parse_categories(self):
         categories = []
