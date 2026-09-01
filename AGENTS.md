@@ -9,8 +9,21 @@ uv run taskdav.py list                       # list open tasks (todo.txt-style o
 uv run taskdav.py list -i                     # include completed
 uv run taskdav.py view 1                      # detailed view of task 1 (Rich panel + Markdown)
 uv run taskdav.py create "(A) buy milk +groceries due:2026-07-10"
+uv run taskdav.py create "(A) weekly review +career rec:1w due:2026-09-04"   # recurring
 uv run taskdav.py delete 2                     # 1-indexed position from `list`
 ```
+
+**Recurrence** (added 2026-09): `rec:` tag in create strings, todo.txt-style —
+optional count + `d`/`w`/`m`/`y` (`w`, `1w`, `+2m`). Stored as a VTODO `RRULE`
+(FREQ/INTERVAL). Recurring VTODOs anchor on `due:` — always set a due date.
+Display round-trips (`list`/`view` show `rec:w`); RRULEs with parts other than
+FREQ/INTERVAL (e.g. BYDAY created elsewhere) display as the raw RRULE.
+Helpers live in `task.py`: `recurrence_to_rrule`, `rrule_to_recurrence`.
+**Server limitation (Mailbox.org/Open-Xchange): the CalDAV server silently
+strips RRULE from VTODOs on PUT** — recurring VTODOs are not persisted there.
+VTODO recurrence works against RFC-compliant servers only. For server-side
+recurring items on Mailbox.org, use a VEVENT with RRULE (verified working
+2026-09) — e.g. the weekly job-pipeline-update event on the Calendar.
 
 Requires env vars: `CALDAV_URL`, `TASK_USERNAME`, `TASK_PWORD`, `TASK_CALENDAR`. Provisioned via credproxy — never hardcode or commit credentials.
 
@@ -28,7 +41,7 @@ Requires env vars: `CALDAV_URL`, `TASK_USERNAME`, `TASK_PWORD`, `TASK_CALENDAR`.
 ## Verify
 
 - **Format**: `uv run black .` (formatter; dev dep). Config in `pyproject.toml` `[tool.black]`.
-- **Test**: `uv run pytest` (dev dep — 15 tests in `tests/test_task.py`). Config: `[tool.pytest.ini_options]` with `pythonpath = ["."]`.
+- **Test**: `uv run python -m pytest` (dev dep — 24 tests in `tests/test_task.py`). Config: `[tool.pytest.ini_options]` with `pythonpath = ["."]`. Gotcha (2026-09): bare `uv run pytest` resolves to the global `~/.local/bin/pytest`, which lacks project deps (vobject ImportError). Always use `uv run python -m pytest`.
 - No lint/typecheck configured. Run `uv run black --check .` as a minimal gate.
 
 ## Architecture

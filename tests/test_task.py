@@ -1,9 +1,10 @@
 import os
 import json
+import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
-from task import Task, TodoList
+from task import Task, TodoList, recurrence_to_rrule, rrule_to_recurrence
 
 SAMPLE_VTODO_FULL = """BEGIN:VCALENDAR
 VERSION:2.0
@@ -30,6 +31,19 @@ PRODID:-//test//test//EN
 BEGIN:VTODO
 UID:test-uid-2
 SUMMARY:No description task
+END:VTODO
+END:VCALENDAR
+"""
+
+SAMPLE_VTODO_RECURRING = """BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//test//test//EN
+BEGIN:VTODO
+UID:test-uid-3
+SUMMARY:Job pipeline update
+STATUS:NEEDS-ACTION
+DUE;VALUE=DATE:20260904
+RRULE:FREQ=WEEKLY;INTERVAL=1
 END:VTODO
 END:VCALENDAR
 """
@@ -213,3 +227,94 @@ def test_view_task_resolves_correct_index(monkeypatch, tmp_path):
     monkeypatch.setattr(tdl, "get_tasks", spy)
     tdl.view_task("1")
     spy.assert_called_once()
+
+
+def test_recurrence_to_rrule_maps_units_and_intervals():
+    assert recurrence_to_rrule("w") == "FREQ=WEEKLY"
+    assert recurrence_to_rrule("1w") == "FREQ=WEEKLY"
+    assert recurrence_to_rrule("+1w") == "FREQ=WEEKLY"
+    assert recurrence_to_rrule("d") == "FREQ=DAILY"
+    assert recurrence_to_rrule("2m") == "FREQ=MONTHLY;INTERVAL=2"
+    assert recurrence_to_rrule("1y") == "FREQ=YEARLY"
+
+
+def test_recurrence_to_rrule_rejects_invalid():
+    with pytest.raises(ValueError, match="Invalid recurrence"):
+        recurrence_to_rrule("weekly")
+    with pytest.raises(ValueError, match="Invalid recurrence"):
+        recurrence_to_rrule("1x")
+
+
+def test_rrule_to_recurrence_round_trips():
+    assert rrule_to_recurrence("FREQ=WEEKLY") == "w"
+    assert rrule_to_recurrence("FREQ=MONTHLY;INTERVAL=2") == "2m"
+    assert rrule_to_recurrence("FREQ=DAILY") == "d"
+
+
+def test_rrule_to_recurrence_falls_back_to_raw_for_unsupported_parts():
+    assert rrule_to_recurrence("FREQ=WEEKLY;BYDAY=FR") == "FREQ=WEEKLY;BYDAY=FR"
+    assert rrule_to_recurrence(None) is None
+
+
+def test_task_parses_recurrence_from_vtodo():
+    task = Task(SAMPLE_VTODO_RECURRING)
+    assert task.recurrence == "FREQ=WEEKLY;INTERVAL=1"
+
+
+def test_task_without_recurrence_returns_none():
+    task = Task(SAMPLE_VTODO_NO_DESC)
+    assert task.recurrence is None
+
+
+def test_task_view_shows_recurrence(capsys):
+    Task(SAMPLE_VTODO_RECURRING).view()
+    out = capsys.readouterr().out
+    assert "Recurrence" in out
+    assert "rec:w" in out
+
+
+def test_parse_captures_recurrence():
+    tdl = TodoList.__new__(TodoList)
+    data = tdl.parse("(A) Job pipeline update +career rec:1w due:2026-09-04")
+    assert data["recurrence"] == "1w"
+    assert data["summary"] == "Job pipeline update"
+    assert data["due_date"] == datetime(2026, 9, 4)
+
+
+def test_create_task_writes_rrule(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([])
+
+    tdl.create_task("(A) Job pipeline update +career rec:1w due:2026-09-04")
+
+    saved = fake_cal.save_todo.call_args[0][0]
+    assert "RRULE:FREQ=WEEKLY" in saved
+    assert "DUE" in saved
+
+
+def test_priority_to_int_maps_letters_and_digits():
+    from task import priority_to_int
+
+    assert priority_to_int("A") == 1
+    assert priority_to_int("a") == 1
+    assert priority_to_int("B") == 3
+    assert priority_to_int("C") == 5
+    assert priority_to_int("D") == 7
+    assert priority_to_int("Z") == 9
+    assert priority_to_int("5") == 5
+    assert priority_to_int(None) == 9
+
+
+def test_create_task_writes_numeric_priority(monkeypatch, tmp_path):
+    cache_file = tmp_path / "tasks.json"
+    monkeypatch.setattr(TodoList, "_cache_path", lambda self: str(cache_file))
+    tdl, fake_cal = make_fake_todo_list([])
+
+    tdl.create_task("(A) priority test")
+    saved = fake_cal.save_todo.call_args[0][0]
+    assert "PRIORITY:1" in saved
+
+    tdl.create_task("no priority test")
+    saved = fake_cal.save_todo.call_args[0][0]
+    assert "PRIORITY:9" in saved

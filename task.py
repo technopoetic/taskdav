@@ -13,6 +13,51 @@ from rich.table import Table
 from rich.markdown import Markdown
 from rich.console import Group
 
+RECURRENCE_UNITS = {"d": "DAILY", "w": "WEEKLY", "m": "MONTHLY", "y": "YEARLY"}
+FREQ_TO_UNIT = {freq: unit for unit, freq in RECURRENCE_UNITS.items()}
+# CalDAV PRIORITY is an integer (1 highest, 0/absent undefined). CLI letters map onto
+# the display buckets in Task._parse_priority (<=4 HIGH, 5 MEDIUM, >=6 LOW).
+LETTER_PRIORITY_TO_INT = {"A": 1, "B": 3, "C": 5, "D": 7}
+
+
+def priority_to_int(priority):
+    if priority is None:
+        return 9
+    value = str(priority).upper()
+    if value.isdigit():
+        return min(9, max(1, int(value)))
+    return LETTER_PRIORITY_TO_INT.get(value, 9)
+
+
+def recurrence_to_rrule(recurrence):
+    """Convert a todo.txt-style rec: value (e.g. '1w', 'w', '+2m') to an RRULE string."""
+    match = re.fullmatch(r"([+-]?\d+)?([dwmy])", str(recurrence).strip().lower())
+    if not match:
+        raise ValueError(
+            f"Invalid recurrence: {recurrence!r} (expected optional count + d/w/m/y, e.g. 'w', '1w', '2m')"
+        )
+    interval = int(match.group(1) or 1)
+    parts = [f"FREQ={RECURRENCE_UNITS[match.group(2)]}"]
+    if interval > 1:
+        parts.append(f"INTERVAL={interval}")
+    return ";".join(parts)
+
+
+def rrule_to_recurrence(rrule):
+    """Convert an RRULE string back to rec: short form. Falls back to the raw RRULE for anything we did not create."""
+    if not rrule:
+        return None
+    keys = {}
+    for part in str(rrule).split(";"):
+        if "=" in part:
+            key, value = part.split("=", 1)
+            keys[key] = value
+    unit = FREQ_TO_UNIT.get(keys.get("FREQ", ""))
+    if unit is None or set(keys) - {"FREQ", "INTERVAL"}:
+        return str(rrule)
+    interval = int(keys.get("INTERVAL", 1))
+    return f"{interval}{unit}" if interval > 1 else unit
+
 
 class Task:
     def __init__(self, vdata):
@@ -26,6 +71,7 @@ class Task:
         self.last_modified = self._parse_updated()
         self.percent = self._parse_percent()
         self.priority = self._parse_priority()
+        self.recurrence = self._parse_recurrence()
         self.status = self._parse_status()
         self.summary = self._parse_summary()
         self.task_class = self._parse_class()
@@ -49,6 +95,7 @@ class Task:
             "due_date": self.due_date,
             "percent_complete": self.percent,
             "priority": self.priority,
+            "recurrence": self.recurrence,
             "summary": self.summary,
             "start_date": self.start_date,
             "status": self.status,
@@ -68,8 +115,11 @@ class Task:
             due_date = ""
         else:
             due_date = f"({self.due_date: %Y-%m-%d})"
+        recurrence = (
+            f" rec:{rrule_to_recurrence(self.recurrence)}" if self.recurrence else ""
+        )
         print(
-            f"({num}) ({self.priority}) {status} {due_date} {self.summary} {self.categories or ''}"
+            f"({num}) ({self.priority}) {status} {due_date} {self.summary} {self.categories or ''}{recurrence}"
         )
 
     def view(self):
@@ -84,6 +134,10 @@ class Task:
 
         table.add_row("Status", self.status or "—")
         table.add_row("Due", fmt_date(self.due_date))
+        table.add_row(
+            "Recurrence",
+            f"rec:{rrule_to_recurrence(self.recurrence)}" if self.recurrence else "—",
+        )
         table.add_row("Start", fmt_date(self.start_date))
         table.add_row("Completed", fmt_date(self.completed_date))
         table.add_row("Created", fmt_date(self.created))
@@ -181,6 +235,13 @@ class Task:
             return created[0].value
         else:
             return None
+
+    def _parse_recurrence(self):
+        todo = self.data_dict.contents.get("vtodo")[0]
+        rrule = todo.contents.get("rrule")
+        if rrule is not None:
+            return rrule[0].value
+        return None
 
     def _parse_uid(self):
         todo = self.data_dict.contents.get("vtodo")[0]
@@ -311,9 +372,11 @@ class TodoList:
             task.add("description").value = task_data.get("description")
         if task_data.get("due_date") is not None:
             task.add("due").value = task_data.get("due_date")
-        task.add("priority").value = task_data.get("priority", 9)
+        task.add("priority").value = str(priority_to_int(task_data.get("priority")))
         if task_data.get("start_date") is not None:
             task.add("dtstart").value = task_data.get("start_date")
+        if task_data.get("recurrence"):
+            task.add("rrule").value = recurrence_to_rrule(task_data["recurrence"])
         if task_data.get("status") is not None:
             task.add("status").value = task_data.get("status")
 
@@ -344,6 +407,7 @@ class TodoList:
             "categories": None,
             "status": None,
             "start_date": None,
+            "recurrence": None,
         }
         data = data.strip().split()
 
@@ -366,6 +430,9 @@ class TodoList:
                 task_data["due_date"] = dateutil.parser.parse(
                     re.match(r"due:(.*)", item).group(1)
                 )
+            # recurrence (todo.txt-style: w, 1w, +2m)
+            elif re.match(r"rec:(\S+)", item):
+                task_data["recurrence"] = re.match(r"rec:(\S+)", item).group(1)
             else:
                 summary_words.append(item)
 
